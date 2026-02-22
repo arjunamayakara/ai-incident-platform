@@ -1,0 +1,30 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: incident-consumer
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: incident-consumer-group
+      auto-offset-reset: earliest
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+kafka:
+  topics:
+    metrics: metric-events
+    incidents: incidents
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    com.aiplatform: DEBUG

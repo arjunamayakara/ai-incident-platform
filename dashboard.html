@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Incident Response Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base:      #080b0f;
+    --bg-surface:   #0d1117;
+    --bg-elevated:  #161b22;
+    --bg-hover:     #1c2330;
+    --border:       #21262d;
+    --border-bright:#30363d;
+    --text-primary: #e6edf3;
+    --text-secondary:#8b949e;
+    --text-muted:   #484f58;
+    --accent-blue:  #388bfd;
+    --accent-cyan:  #39d353;
+    --accent-orange:#f78166;
+    --accent-yellow:#e3b341;
+    --accent-purple:#bc8cff;
+    --critical:     #ff6b6b;
+    --warning:      #f0a500;
+    --resolved:     #3fb950;
+    --analyzing:    #388bfd;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Scanline overlay for terminal feel ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, #388bfd, #bc8cff);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+  }
+
+  .header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-primary);
+  }
+
+  .header-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--accent-cyan);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent-cyan);
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .refresh-btn {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-bright);
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent-blue);
+  }
+
+  /* ── Layout ── */
+  .main {
+    padding: 20px 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* ── Stats Row ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: var(--border-bright); }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .stat-card.total::before  { background: var(--accent-blue); }
+  .stat-card.resolved::before { background: var(--resolved); }
+  .stat-card.active::before  { background: var(--warning); }
+  .stat-card.analyzing::before { background: var(--accent-blue); }
+  .stat-card.escalated::before { background: var(--critical); }
+
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-card.total .stat-value   { color: var(--accent-blue); }
+  .stat-card.resolved .stat-value { color: var(--resolved); }
+  .stat-card.active .stat-value   { color: var(--warning); }
+  .stat-card.analyzing .stat-value { color: var(--accent-blue); }
+  .stat-card.escalated .stat-value { color: var(--critical); }
+
+  .stat-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* ── Grid ── */
+  .content-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+  }
+
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-secondary);
+  }
+
+  .panel-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-bright);
+    color: var(--text-muted);
+  }
+
+  /* ── Incident Table ── */
+  .incident-table {
+    width: 100%;
+  }
+
+  .incident-row {
+    display: grid;
+    grid-template-columns: 90px 150px 100px 110px 1fr 100px;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .incident-row:hover { background: var(--bg-hover); }
+  .incident-row:last-child { border-bottom: none; }
+
+  .incident-row.header-row {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: default;
+    background: var(--bg-elevated);
+    padding: 8px 16px;
+  }
+  .incident-row.header-row:hover { background: var(--bg-elevated); }
+
+  /* ── Severity Badge ── */
+  .severity {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .severity.CRITICAL {
+    background: rgba(255,107,107,0.12);
+    color: var(--critical);
+    border: 1px solid rgba(255,107,107,0.25);
+  }
+  .severity.WARNING {
+    background: rgba(240,165,0,0.12);
+    color: var(--warning);
+    border: 1px solid rgba(240,165,0,0.25);
+  }
+  .severity.INFO {
+    background: rgba(56,139,253,0.12);
+    color: var(--accent-blue);
+    border: 1px solid rgba(56,139,253,0.25);
+  }
+
+  /* ── Status Badge ── */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .status.RESOLVED   { background: rgba(63,185,80,0.12); color: var(--resolved); border: 1px solid rgba(63,185,80,0.25); }
+  .status.ANALYZING  { background: rgba(56,139,253,0.12); color: var(--accent-blue); border: 1px solid rgba(56,139,253,0.25); }
+  .status.ESCALATED  { background: rgba(255,107,107,0.12); color: var(--critical); border: 1px solid rgba(255,107,107,0.25); }
+  .status.DETECTED   { background: rgba(240,165,0,0.12); color: var(--warning); border: 1px solid rgba(240,165,0,0.25); }
+  .status.REMEDIATING { background: rgba(188,140,255,0.12); color: var(--accent-purple); border: 1px solid rgba(188,140,255,0.25); }
+
+  .service-name {
+    font-size: 12px;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .instance-name {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .rca-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .timestamp {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* ── Service Health Panel ── */
+  .service-list {
+    padding: 8px 0;
+  }
+
+  .service-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .service-item:hover { background: var(--bg-hover); }
+  .service-item:last-child { border-bottom: none; }
+
+  .service-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .health-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .health-dot.healthy  { background: var(--resolved); box-shadow: 0 0 6px var(--resolved); }
+  .health-dot.degraded { background: var(--warning); box-shadow: 0 0 6px var(--warning); animation: pulse 2s infinite; }
+  .health-dot.critical { background: var(--critical); box-shadow: 0 0 6px var(--critical); animation: pulse 1s infinite; }
+  .health-dot.warning  { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+  .health-dot.unknown  { background: var(--text-muted); }
+
+  .service-label {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  .health-tag {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .health-tag.healthy  { color: var(--resolved); }
+  .health-tag.degraded { color: var(--warning); }
+  .health-tag.critical { color: var(--critical); }
+  .health-tag.warning  { color: var(--warning); }
+  .health-tag.unknown  { color: var(--text-muted); }
+
+  /* ── Action Breakdown ── */
+  .action-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .action-item {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+
+  .action-name {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .action-count {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent-purple);
+  }
+
+  /* ── Incident Detail Modal ── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-bright);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 680px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    animation: slideUp 0.2s ease;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .modal-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 20px;
+    padding: 0 4px;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+  .modal-close:hover { color: var(--text-primary); }
+
+  .modal-body {
+    padding: 20px 24px;
+  }
+
+  .ai-section {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-purple);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .ai-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent-purple);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ai-content {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.6;
+  }
+
+  .action-section {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--resolved);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .action-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--resolved);
+    margin-bottom: 8px;
+  }
+
+  .action-content {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.6;
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .detail-field {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+
+  .detail-field-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .detail-field-value {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  /* ── Empty State ── */
+  .empty-state {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .empty-icon { font-size: 32px; margin-bottom: 12px; }
+  .empty-title { font-family: 'Syne', sans-serif; font-size: 14px; color: var(--text-secondary); margin-bottom: 6px; }
+  .empty-sub { font-size: 11px; }
+
+  /* ── Loading ── */
+  .loading {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+
+  .loading-bar {
+    width: 120px;
+    height: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 12px auto 0;
+    overflow: hidden;
+  }
+  .loading-bar::after {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 100%;
+    background: var(--accent-blue);
+    animation: slide 1s ease-in-out infinite;
+    border-radius: 2px;
+  }
+  @keyframes slide {
+    from { transform: translateX(-40px); }
+    to   { transform: translateX(160px); }
+  }
+
+  /* ── Bottom row ── */
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .config-note {
+    font-size: 10px;
+    color: var(--text-muted);
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .api-url {
+    color: var(--accent-blue);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-base); }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo-icon">🤖</div>
+    <div>
+      <h1>AI Incident Response Platform</h1>
+      <div class="header-subtitle">Autonomous Detection · Diagnosis · Remediation</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="live-dot"></div>
+      <span>Live</span>
+    </div>
+    <div id="last-updated" style="font-size:11px;color:var(--text-muted);">Connecting...</div>
+    <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+    <div id="api-status" style="font-size:11px;padding:4px 10px;border-radius:4px;background:rgba(56,139,253,0.1);color:var(--accent-blue);border:1px solid rgba(56,139,253,0.2);">
+      Connecting
+    </div>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Stats Row -->
+  <div class="stats-row">
+    <div class="stat-card total">
+      <div class="stat-label">Total Incidents</div>
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-sub">all time</div>
+    </div>
+    <div class="stat-card resolved">
+      <div class="stat-label">Resolved</div>
+      <div class="stat-value" id="stat-resolved">—</div>
+      <div class="stat-sub">auto-remediated</div>
+    </div>
+    <div class="stat-card active">
+      <div class="stat-label">Active</div>
+      <div class="stat-value" id="stat-active">—</div>
+      <div class="stat-sub">needs attention</div>
+    </div>
+    <div class="stat-card analyzing">
+      <div class="stat-label">Analyzing</div>
+      <div class="stat-value" id="stat-analyzing">—</div>
+      <div class="stat-sub">AI processing</div>
+    </div>
+    <div class="stat-card escalated">
+      <div class="stat-label">Escalated</div>
+      <div class="stat-value" id="stat-escalated">—</div>
+      <div class="stat-sub">human required</div>
+    </div>
+  </div>
+
+  <!-- Main Content Grid -->
+  <div class="content-grid">
+
+    <!-- Incident Feed -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Incident Feed</span>
+        <span class="panel-badge" id="incident-count">0 incidents</span>
+      </div>
+      <div id="incident-feed">
+        <div class="loading">
+          CONNECTING TO BACKEND
+          <div class="loading-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column -->
+    <div style="display:flex;flex-direction:column;gap:16px;">
+
+      <!-- Service Health -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Service Health</span>
+        </div>
+        <div class="service-list" id="service-health">
+          <div class="loading" style="padding:20px;">—</div>
+        </div>
+      </div>
+
+      <!-- Action Breakdown -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Actions Taken</span>
+        </div>
+        <div class="action-grid" id="action-breakdown">
+          <div class="loading" style="padding:12px;grid-column:1/-1;">—</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Config note -->
+  <div class="config-note">
+    ⚙ Dashboard API:
+    <span class="api-url" id="api-url-display" onclick="changeApiUrl()">http://localhost:8084</span>
+    &nbsp;·&nbsp; Auto-refreshes every 10s
+    &nbsp;·&nbsp; Click any incident to see AI diagnosis
+  </div>
+
+</main>
+
+<!-- Incident Detail Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal" id="modal-content">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title">Incident Details</div>
+        <div class="modal-subtitle" id="modal-subtitle"></div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+  // ── Config ──────────────────────────────────────────────────────────────────
+  let API_BASE = localStorage.getItem('api_base') || 'http://localhost:8084';
+  document.getElementById('api-url-display').textContent = API_BASE;
+
+  function changeApiUrl() {
+    const url = prompt('Enter backend URL:', API_BASE);
+    if (url) {
+      API_BASE = url.replace(/\/$/, '');
+      localStorage.setItem('api_base', API_BASE);
+      document.getElementById('api-url-display').textContent = API_BASE;
+      loadData();
+    }
+  }
+
+  // ── Data Loading ────────────────────────────────────────────────────────────
+  async function loadData() {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/dashboard/incidents`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      setApiStatus(true);
+      renderStats(data.stats);
+      renderIncidentFeed(data.incidents);
+      renderServiceHealth(data.serviceHealth);
+      renderActionBreakdown(data.actionBreakdown);
+
+      const now = new Date().toLocaleTimeString();
+      document.getElementById('last-updated').textContent = `Updated ${now}`;
+    } catch (e) {
+      setApiStatus(false);
+      document.getElementById('last-updated').textContent = 'Connection failed';
+      renderError();
+    }
+  }
+
+  function setApiStatus(ok) {
+    const el = document.getElementById('api-status');
+    if (ok) {
+      el.textContent = 'Connected';
+      el.style.background = 'rgba(63,185,80,0.1)';
+      el.style.color = '#3fb950';
+      el.style.borderColor = 'rgba(63,185,80,0.2)';
+    } else {
+      el.textContent = 'Disconnected';
+      el.style.background = 'rgba(255,107,107,0.1)';
+      el.style.color = '#ff6b6b';
+      el.style.borderColor = 'rgba(255,107,107,0.2)';
+    }
+  }
+
+  // ── Renderers ───────────────────────────────────────────────────────────────
+  function renderStats(stats) {
+    document.getElementById('stat-total').textContent     = stats.total     ?? 0;
+    document.getElementById('stat-resolved').textContent  = stats.resolved  ?? 0;
+    document.getElementById('stat-active').textContent    = stats.active    ?? 0;
+    document.getElementById('stat-analyzing').textContent = stats.analyzing ?? 0;
+    document.getElementById('stat-escalated').textContent = stats.escalated ?? 0;
+  }
+
+  function renderIncidentFeed(incidents) {
+    const container = document.getElementById('incident-feed');
+    document.getElementById('incident-count').textContent = `${incidents.length} incident${incidents.length !== 1 ? 's' : ''}`;
+
+    if (!incidents.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">✅</div>
+          <div class="empty-title">No incidents detected</div>
+          <div class="empty-sub">All services are running normally</div>
+        </div>`;
+      return;
+    }
+
+    const rows = incidents.map(inc => `
+      <div class="incident-row" onclick="showDetail(${JSON.stringify(inc).replace(/"/g, '&quot;')})">
+        <div><span class="severity ${inc.severity}">${inc.severity}</span></div>
+        <div>
+          <div class="service-name">${inc.serviceId}</div>
+          <div class="instance-name">${inc.instanceId || ''}</div>
+        </div>
+        <div><span class="status ${inc.status}">${inc.status}</span></div>
+        <div>${actionChip(inc.actionTaken)}</div>
+        <div class="rca-text" title="${inc.aiRootCause || ''}">${inc.aiRootCause || '<span style="color:var(--text-muted)">Pending diagnosis...</span>'}</div>
+        <div class="timestamp">${formatTime(inc.detectedAt)}</div>
+      </div>`).join('');
+
+    container.innerHTML = `
+      <div class="incident-row header-row">
+        <div>Severity</div><div>Service</div><div>Status</div>
+        <div>Action</div><div>Root Cause</div><div>Time</div>
+      </div>
+      ${rows}`;
+  }
+
+  function actionChip(actionTaken) {
+    if (!actionTaken) return '<span style="color:var(--text-muted);font-size:10px;">—</span>';
+    const action = extractAction(actionTaken);
+    const colors = {
+      'SCALE_UP':   '#bc8cff',
+      'RESTART_POD':'#388bfd',
+      'ROLLBACK':   '#f78166',
+      'ALERT_TEAM': '#f0a500',
+      'INVESTIGATE':'#8b949e'
+    };
+    const color = colors[action] || '#8b949e';
+    return `<span style="font-size:10px;color:${color};background:${color}18;border:1px solid ${color}30;padding:2px 7px;border-radius:4px;letter-spacing:0.5px;">${action.replace('_', ' ')}</span>`;
+  }
+
+  function renderServiceHealth(serviceHealth) {
+    const container = document.getElementById('service-health');
+    if (!serviceHealth || !Object.keys(serviceHealth).length) {
+      // Show all known services as unknown
+      const services = ['payment-service','order-service','inventory-service','notification-service','api-gateway'];
+      container.innerHTML = services.map(s => serviceRow(s, 'unknown')).join('');
+      return;
+    }
+    container.innerHTML = Object.entries(serviceHealth)
+      .map(([service, health]) => serviceRow(service, health))
+      .join('');
+  }
+
+  function serviceRow(service, health) {
+    return `
+      <div class="service-item">
+        <div class="service-info">
+          <div class="health-dot ${health}"></div>
+          <span class="service-label">${service}</span>
+        </div>
+        <span class="health-tag ${health}">${health}</span>
+      </div>`;
+  }
+
+  function renderActionBreakdown(breakdown) {
+    const container = document.getElementById('action-breakdown');
+    const actions = ['SCALE_UP','RESTART_POD','ROLLBACK','ALERT_TEAM','INVESTIGATE'];
+    if (!breakdown || !Object.keys(breakdown).length) {
+      container.innerHTML = `<div style="grid-column:1/-1;padding:8px;color:var(--text-muted);font-size:11px;">No actions taken yet</div>`;
+      return;
+    }
+    container.innerHTML = actions
+      .filter(a => breakdown[a])
+      .map(a => `
+        <div class="action-item">
+          <div class="action-name">${a.replace('_', ' ')}</div>
+          <div class="action-count">${breakdown[a] || 0}</div>
+        </div>`).join('');
+  }
+
+  function renderError() {
+    document.getElementById('incident-feed').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-title">Cannot connect to backend</div>
+        <div class="empty-sub">Make sure action-executor is running on ${API_BASE}<br>
+        Click the URL above to change it</div>
+      </div>`;
+  }
+
+  // ── Modal ───────────────────────────────────────────────────────────────────
+  function showDetail(inc) {
+    document.getElementById('modal-title').textContent = inc.serviceId;
+    document.getElementById('modal-subtitle').textContent =
+      `${inc.incidentId} · ${formatTime(inc.detectedAt)}`;
+
+    const action = extractAction(inc.actionTaken || '');
+
+    document.getElementById('modal-body').innerHTML = `
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <span class="severity ${inc.severity}">${inc.severity}</span>
+        <span class="status ${inc.status}">${inc.status}</span>
+        ${inc.actionTaken ? actionChip(inc.actionTaken) : ''}
+      </div>
+
+      ${inc.aiRootCause ? `
+      <div class="ai-section">
+        <div class="ai-label">🤖 AI Root Cause Analysis</div>
+        <div class="ai-content">${inc.aiRootCause}</div>
+      </div>` : ''}
+
+      ${inc.aiRecommendation ? `
+      <div class="ai-section" style="border-left-color:var(--accent-blue)">
+        <div class="ai-label" style="color:var(--accent-blue)">💡 AI Recommendation</div>
+        <div class="ai-content">${inc.aiRecommendation}</div>
+      </div>` : ''}
+
+      ${inc.actionTaken ? `
+      <div class="action-section">
+        <div class="action-label">⚡ Action Taken</div>
+        <div class="action-content">${inc.actionTaken}</div>
+      </div>` : ''}
+
+      <div class="detail-grid">
+        <div class="detail-field">
+          <div class="detail-field-label">Instance</div>
+          <div class="detail-field-value">${inc.instanceId || '—'}</div>
+        </div>
+        <div class="detail-field">
+          <div class="detail-field-label">Environment</div>
+          <div class="detail-field-value">${inc.environment || 'production'}</div>
+        </div>
+        <div class="detail-field">
+          <div class="detail-field-label">Detected</div>
+          <div class="detail-field-value">${formatTime(inc.detectedAt)}</div>
+        </div>
+        <div class="detail-field">
+          <div class="detail-field-label">Resolved</div>
+          <div class="detail-field-value">${inc.resolvedAt ? formatTime(inc.resolvedAt) : '—'}</div>
+        </div>
+        <div class="detail-field" style="grid-column:1/-1">
+          <div class="detail-field-label">Description</div>
+          <div class="detail-field-value" style="white-space:pre-wrap;line-height:1.5">${inc.description || '—'}</div>
+        </div>
+      </div>`;
+
+    document.getElementById('modal').classList.add('open');
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('modal')) {
+      document.getElementById('modal').classList.remove('open');
+    }
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+  function extractAction(text) {
+    if (!text) return 'INVESTIGATE';
+    if (text.includes('SCALE_UP'))    return 'SCALE_UP';
+    if (text.includes('RESTART'))     return 'RESTART_POD';
+    if (text.includes('ROLLBACK'))    return 'ROLLBACK';
+    if (text.includes('ALERT'))       return 'ALERT_TEAM';
+    return 'INVESTIGATE';
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '—';
+    try {
+      const d = new Date(ts);
+      return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return ts; }
+  }
+
+  // ── Boot ────────────────────────────────────────────────────────────────────
+  loadData();
+  setInterval(loadData, 10000); // auto-refresh every 10 seconds
+</script>
+</body>
+</html>

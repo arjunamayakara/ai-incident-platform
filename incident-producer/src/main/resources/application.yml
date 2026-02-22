@@ -1,0 +1,31 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: incident-producer
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      client-id: incident-producer
+      compression-type: snappy
+      batch-size: 16384
+      linger-ms: 5
+
+kafka:
+  topics:
+    metrics: metric-events
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.aiplatform: DEBUG
+    org.springframework.kafka: INFO
